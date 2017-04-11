@@ -61,9 +61,14 @@ def _save_checkpoint(train_data, batch):
 
 def train_model(train_data):
     td = train_data
+    # tensorflow version 1.0
+    summaries = tf.summary.merge_all()
+    init = tf.global_variables_initializer()
+    td.sess.run(init)
+    # tensorflow version 0.11
+    # summaries = tf.merge_all_summaries()
+    # td.sess.run(tf.initialize_all_variables())
 
-    summaries = tf.merge_all_summaries()
-    td.sess.run(tf.initialize_all_variables())
 
     lrval       = FLAGS.learning_rate_start
     start_time  = time.time()
@@ -105,6 +110,11 @@ def train_model(train_data):
             feed_dict = {td.gene_minput: test_feature}
             gene_output = td.sess.run(td.gene_moutput, feed_dict=feed_dict)
             _summarize_progress(td, test_feature, test_label, gene_output, batch, 'out')
+
+            merge = td.sess.run(summaries)
+            td.summary_writer.add_summary(merge)
+            td.summary_writer.flush()
+
             
         if batch % FLAGS.checkpoint_period == 0:
             # Save checkpoint

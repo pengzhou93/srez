@@ -28,7 +28,7 @@ tf.app.flags.DEFINE_string('dataset', 'dataset',
 tf.app.flags.DEFINE_float('epsilon', 1e-8,
                           "Fuzz term to avoid numerical instability")
 
-tf.app.flags.DEFINE_string('run', 'demo',
+tf.app.flags.DEFINE_string('run', 'train',
                             "Which operation to run. [demo|train]")
 
 tf.app.flags.DEFINE_float('gene_l1_factor', .90,
@@ -100,8 +100,8 @@ def setup_tensorflow():
     random.seed(FLAGS.random_seed)
     np.random.seed(FLAGS.random_seed)
 
-    summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
-
+    summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
+    # summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
     return sess, summary_writer
 
 def _demo():
@@ -142,7 +142,7 @@ def _train():
     sess, summary_writer = setup_tensorflow()
 
     # Prepare directories
-    all_filenames = prepare_dirs(delete_train_dir=True)
+    all_filenames = prepare_dirs(delete_train_dir=False)
 
     # Separate training and test sets
     train_filenames = all_filenames[:-FLAGS.test_vectors]
@@ -151,6 +151,7 @@ def _train():
     # TBD: Maybe download dataset here
 
     # Setup async input queues
+    # train_features : down sample images(4x)   train_labels : original images(64 64 3)
     train_features, train_labels = srez_input.setup_inputs(sess, train_filenames)
     test_features,  test_labels  = srez_input.setup_inputs(sess, test_filenames)
 
