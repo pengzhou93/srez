@@ -462,7 +462,7 @@ def create_generator_loss(disc_output, gene_output, features):
 
     gene_loss     = tf.add((1.0 - FLAGS.gene_l1_factor) * gene_ce_loss,
                            FLAGS.gene_l1_factor * gene_l1_loss, name='gene_loss')
-    
+    tf.summary.scalar('gene_loss', gene_loss)
     return gene_loss
 
 def create_discriminator_loss(disc_real_output, disc_fake_output):

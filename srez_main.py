@@ -31,7 +31,7 @@ tf.app.flags.DEFINE_float('epsilon', 1e-8,
 tf.app.flags.DEFINE_string('run', 'train',
                             "Which operation to run. [demo|train]")
 
-tf.app.flags.DEFINE_float('gene_l1_factor', .90,
+tf.app.flags.DEFINE_float('gene_l1_factor', 0.8,
                           "Multiplier for generator L1 loss term")
 
 tf.app.flags.DEFINE_float('learning_beta1', 0.5,
@@ -61,6 +61,9 @@ tf.app.flags.DEFINE_integer('test_vectors', 16,
 tf.app.flags.DEFINE_string('train_dir', 'train',
                            "Output folder where training logs are dumped.")
 
+tf.app.flags.DEFINE_string('log_dir', 'log',
+                           "Log folder where training logs are dumped.")
+
 tf.app.flags.DEFINE_integer('train_time', 20,
                             "Time in minutes to train the model")
 
@@ -75,11 +78,14 @@ def prepare_dirs(delete_train_dir=False):
             tf.gfile.DeleteRecursively(FLAGS.train_dir)
         tf.gfile.MakeDirs(FLAGS.train_dir)
 
+    if not tf.gfile.Exists(FLAGS.train_dir):
+        tf.gfile.MakeDirs(FLAGS.train_dir)
+
     # Return names of training files
     if not tf.gfile.Exists(FLAGS.dataset) or \
        not tf.gfile.IsDirectory(FLAGS.dataset):
         raise FileNotFoundError("Could not find folder `%s'" % (FLAGS.dataset,))
-
+  
     filenames = tf.gfile.ListDirectory(FLAGS.dataset)
     filenames = sorted(filenames)
     random.shuffle(filenames)
@@ -100,7 +106,7 @@ def setup_tensorflow():
     random.seed(FLAGS.random_seed)
     np.random.seed(FLAGS.random_seed)
 
-    summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
+    summary_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     # summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
     return sess, summary_writer
 
@@ -166,10 +172,19 @@ def _train():
      disc_real_output, disc_fake_output, disc_var_list] = \
             srez_model.create_model(sess, noisy_train_features, train_labels)
 
+    # generator loss
     gene_loss = srez_model.create_generator_loss(disc_fake_output, gene_output, train_features)
+    # Plot gene_loss graph
+    summary_gene_loss = tf.summary.FileWriter(FLAGS.log_dir + '/gene_loss')
+    summary_gene_loss.add_graph(gene_loss.graph)
+
+    # discriminator loss
     disc_real_loss, disc_fake_loss = \
                      srez_model.create_discriminator_loss(disc_real_output, disc_fake_output)
     disc_loss = tf.add(disc_real_loss, disc_fake_loss, name='disc_loss')
+    # Plot disc_loss graph
+    summary_disc_loss = tf.summary.FileWriter(FLAGS.log_dir + '/disc_loss')
+    summary_disc_loss.add_graph(disc_loss.graph)
     
     (global_step, learning_rate, gene_minimize, disc_minimize) = \
             srez_model.create_optimizers(gene_loss, gene_var_list,
@@ -181,6 +196,9 @@ def _train():
 
 def main(argv=None):
     # Training or showing off?
+    if tf.gfile.Exists(FLAGS.log_dir):
+        tf.gfile.DeleteRecursively(FLAGS.log_dir)
+    tf.gfile.MakeDirs(FLAGS.log_dir)
 
     if FLAGS.run == 'demo':
         _demo()

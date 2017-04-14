@@ -19,10 +19,10 @@ def _summarize_progress(train_data, feature, label, gene_output, batch, suffix, 
 
     clipped = tf.maximum(tf.minimum(gene_output, 1.0), 0.0)
 
-    image   = tf.concat(2, [nearest, bicubic, clipped, label])
+    image   = tf.concat(axis = 2, values = [nearest, bicubic, clipped, label])
 
     image = image[0:max_samples,:,:,:]
-    image = tf.concat(0, [image[i,:,:,:] for i in range(max_samples)])
+    image = tf.concat(axis = 0, values = [image[i,:,:,:] for i in range(max_samples)])
     image = td.sess.run(image)
 
     filename = 'batch%06d_%s.png' % (batch, suffix)
@@ -80,6 +80,11 @@ def train_model(train_data):
     # Cache test features and labels (they are small)
     test_feature, test_label = td.sess.run([td.test_features, td.test_labels])
 
+    # test summary
+    # summary_writer = tf.summary.FileWriter(FLAGS.log_dir + '/graph')
+    # summary_writer.add_graph(td.gene_loss.graph)
+    # summary_writer.add_graph(td.disc_minimize.graph)
+
     while not done:
         batch += 1
         gene_loss = disc_real_loss = disc_fake_loss = -1.234
@@ -105,16 +110,16 @@ def train_model(train_data):
             if batch % FLAGS.learning_rate_half_life == 0:
                 lrval *= .5
 
+            # Summary
+            merge = td.sess.run(summaries, feed_dict = feed_dict)
+            td.summary_writer.add_summary(merge, batch)
+            td.summary_writer.flush()
+                
         if batch % FLAGS.summary_period == 0:
             # Show progress with test features
             feed_dict = {td.gene_minput: test_feature}
             gene_output = td.sess.run(td.gene_moutput, feed_dict=feed_dict)
             _summarize_progress(td, test_feature, test_label, gene_output, batch, 'out')
-
-            merge = td.sess.run(summaries)
-            td.summary_writer.add_summary(merge)
-            td.summary_writer.flush()
-
             
         if batch % FLAGS.checkpoint_period == 0:
             # Save checkpoint

@@ -1,3 +1,6 @@
+*.png
+.idea/
+log/
 __pycache__/
 checkpoint*/
 dataset/
