@@ -401,37 +401,37 @@ def _generator_model(sess, features, labels, channels):
 
     return model.get_output(), gene_vars
 
-def create_model(sess, features, labels):
-    # Generator
-    rows      = int(features.get_shape()[1])
-    cols      = int(features.get_shape()[2])
-    channels  = int(features.get_shape()[3])
-
-    gene_minput = tf.placeholder(tf.float32, shape=[FLAGS.batch_size, rows, cols, channels])
-
+def create_model(sess, gene_input_pl, real_images_pl, channels = 3):
+    """
+     Create gene and disc networks
+    
+    Parameters:
+    ----------
+     gene_input_pl : tf.placeholder
+         Input of generator, shape : (16, 16, 16, 3)
+     real_images_pl : tf.placeholder
+         Input of discriminator, shape : (16, 64, 64, 3)
+    Returns:
+    ----------
+     list 
+    """
     # TBD: Is there a better way to instance the generator?
     with tf.variable_scope('gene') as scope:
-        gene_output, gene_var_list = \
-                    _generator_model(sess, features, labels, channels)
+        gene_output, gene_var_list = _generator_model(sess, gene_input_pl, real_images_pl, \
+                                                      channels)
 
-        scope.reuse_variables()
-
-        gene_moutput, _ = _generator_model(sess, gene_minput, labels, channels)
-    
-    # Discriminator with real data
-    disc_real_input = tf.identity(labels, name='disc_real_input')
-
+     # Discriminator with real data
+    disc_real_input = tf.identity(real_images_pl, name='disc_real_input')
     # TBD: Is there a better way to instance the discriminator?
     with tf.variable_scope('disc') as scope:
         disc_real_output, disc_var_list = \
-                _discriminator_model(sess, features, disc_real_input)
+                _discriminator_model(sess, gene_input_pl, disc_real_input)
 
         scope.reuse_variables()
             
-        disc_fake_output, _ = _discriminator_model(sess, features, gene_output)
+        disc_fake_output, _ = _discriminator_model(sess, gene_input_pl, gene_output)
 
-    return [gene_minput,      gene_moutput,
-            gene_output,      gene_var_list,
+    return [gene_output, gene_var_list,
             disc_real_output, disc_fake_output, disc_var_list]
 
 def _downscale(images, K):
@@ -449,10 +449,11 @@ def _downscale(images, K):
 
 def create_generator_loss(disc_output, gene_output, features):
     # I.e. did we fool the discriminator?
-    cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_output,
-                                                            labels = tf.ones_like(disc_output))
-    gene_ce_loss  = tf.reduce_mean(cross_entropy, name='gene_ce_loss')
-
+    # cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_output,
+    #                                                         labels = tf.ones_like(disc_output))
+    # gene_ce_loss  = tf.reduce_mean(cross_entropy, name='gene_ce_loss')
+    # Generator loss for wgan
+    gene_wgan_loss = tf.reduce_mean(disc_output)
     # I.e. does the result look like the feature?
     K = int(gene_output.get_shape()[1])//int(features.get_shape()[1])
     assert K == 2 or K == 4 or K == 8    
@@ -460,38 +461,45 @@ def create_generator_loss(disc_output, gene_output, features):
     
     gene_l1_loss  = tf.reduce_mean(tf.abs(downscaled - features), name='gene_l1_loss')
 
-    gene_loss     = tf.add((1.0 - FLAGS.gene_l1_factor) * gene_ce_loss,
+    gene_loss     = tf.add((1.0 - FLAGS.gene_l1_factor) * gene_wgan_loss,
                            FLAGS.gene_l1_factor * gene_l1_loss, name='gene_loss')
-    tf.summary.scalar('gene_loss', gene_loss)
     return gene_loss
 
 def create_discriminator_loss(disc_real_output, disc_fake_output):
     # I.e. did we correctly identify the input as real or not?
-    cross_entropy_real = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_real_output,
-                                                                 labels = tf.ones_like(disc_real_output))
-    disc_real_loss     = tf.reduce_mean(cross_entropy_real, name='disc_real_loss')
+    # cross_entropy_real = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_real_output,
+    #                                                              labels = tf.ones_like(disc_real_output))
+    # disc_real_loss     = tf.reduce_mean(cross_entropy_real, name='disc_real_loss')
     
-    cross_entropy_fake = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_fake_output,
-                                                                 labels = tf.zeros_like(disc_fake_output))
-    disc_fake_loss     = tf.reduce_mean(cross_entropy_fake, name='disc_fake_loss')
-
+    # cross_entropy_fake = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_fake_output,
+    #                                                              labels = tf.zeros_like(disc_fake_output))
+    # disc_fake_loss     = tf.reduce_mean(cross_entropy_fake, name='disc_fake_loss')
+    # Discriminator loss for wgan
+    disc_real_loss = tf.reduce_mean(disc_real_output)
+    disc_fake_loss = - tf.reduce_mean(disc_fake_output)
     return disc_real_loss, disc_fake_loss
 
 def create_optimizers(gene_loss, gene_var_list,
-                      disc_loss, disc_var_list):    
+                      disc_loss, disc_var_list,
+                      learning_rate_pl):    
     # TBD: Does this global step variable need to be manually incremented? I think so.
     global_step    = tf.Variable(0, dtype=tf.int64,   trainable=False, name='global_step')
-    learning_rate  = tf.placeholder(dtype=tf.float32, name='learning_rate')
-    
-    gene_opti = tf.train.AdamOptimizer(learning_rate=learning_rate,
-                                       beta1=FLAGS.learning_beta1,
-                                       name='gene_optimizer')
-    disc_opti = tf.train.AdamOptimizer(learning_rate=learning_rate,
-                                       beta1=FLAGS.learning_beta1,
-                                       name='disc_optimizer')
+     
+    # gene_opti = tf.train.AdamOptimizer(learning_rate=learning_rate_pl,
+    #                                    beta1=FLAGS.learning_beta1,
+    #                                    name='gene_optimizer')
+    # disc_opti = tf.train.AdamOptimizer(learning_rate=learning_rate_pl,
+    #                                    beta1=FLAGS.learning_beta1,
+    #                                    name='disc_optimizer')
+    gene_opti = tf.train.RMSPropOptimizer(learning_rate = learning_rate_pl, \
+                                          name = 'gene_optimizer_RMS')
+    disc_opti = tf.train.RMSPropOptimizer(learning_rate = learning_rate_pl, \
+                                          name = 'disc_optimizer_RMS')
 
-    gene_minimize = gene_opti.minimize(gene_loss, var_list=gene_var_list, name='gene_loss_minimize', global_step=global_step)
+    gene_minimize = gene_opti.minimize(gene_loss, var_list=gene_var_list, \
+                                       name='gene_loss_minimize', global_step=global_step)
     
-    disc_minimize     = disc_opti.minimize(disc_loss, var_list=disc_var_list, name='disc_loss_minimize', global_step=global_step)
+    disc_minimize     = disc_opti.minimize(disc_loss, var_list=disc_var_list, \
+                                           name='disc_loss_minimize', global_step=global_step)
     
-    return (global_step, learning_rate, gene_minimize, disc_minimize)
+    return (global_step, gene_minimize, disc_minimize)

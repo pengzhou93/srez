@@ -13,6 +13,15 @@ import tensorflow as tf
 FLAGS = tf.app.flags.FLAGS
 
 # Configuration (alphabetically)
+tf.app.flags.DEFINE_integer('resume', True,
+                            "Resume training.")
+
+tf.app.flags.DEFINE_float('gene_l1_factor', 0.8,
+                          "Multiplier for generator L1 loss term")
+
+tf.app.flags.DEFINE_float('learning_rate_start', 0.00005,
+                          "Starting learning rate used for AdamOptimizer")
+
 tf.app.flags.DEFINE_integer('batch_size', 16,
                             "Number of samples per batch.")
 
@@ -31,16 +40,10 @@ tf.app.flags.DEFINE_float('epsilon', 1e-8,
 tf.app.flags.DEFINE_string('run', 'train',
                             "Which operation to run. [demo|train]")
 
-tf.app.flags.DEFINE_float('gene_l1_factor', 0.8,
-                          "Multiplier for generator L1 loss term")
-
 tf.app.flags.DEFINE_float('learning_beta1', 0.5,
                           "Beta1 parameter used for AdamOptimizer")
 
-tf.app.flags.DEFINE_float('learning_rate_start', 0.00020,
-                          "Starting learning rate used for AdamOptimizer")
-
-tf.app.flags.DEFINE_integer('learning_rate_half_life', 5000,
+tf.app.flags.DEFINE_integer('learning_rate_half_life', 10000,
                             "Number of batches until learning rate is halved")
 
 tf.app.flags.DEFINE_bool('log_device_placement', False,
@@ -64,7 +67,7 @@ tf.app.flags.DEFINE_string('train_dir', 'train',
 tf.app.flags.DEFINE_string('log_dir', 'log',
                            "Log folder where training logs are dumped.")
 
-tf.app.flags.DEFINE_integer('train_time', 20,
+tf.app.flags.DEFINE_integer('train_time', 2000,
                             "Time in minutes to train the model")
 
 def prepare_dirs(delete_train_dir=False):
@@ -155,7 +158,7 @@ def _train():
     test_filenames  = all_filenames[-FLAGS.test_vectors:]
 
     # TBD: Maybe download dataset here
-
+    
     # Setup async input queues
     # train_features : down sample images(4x)   train_labels : original images(64 64 3)
     train_features, train_labels = srez_input.setup_inputs(sess, train_filenames)
@@ -163,18 +166,39 @@ def _train():
 
     # Add some noise during training (think denoising autoencoders)
     noise_level = .03
-    noisy_train_features = train_features + \
+    gene_input = train_features + \
                            tf.random_normal(train_features.get_shape(), stddev=noise_level)
 
+    rows      = int(train_features.get_shape()[1])
+    cols      = int(train_features.get_shape()[2])
+    channels  = int(train_features.get_shape()[3])
+    rows_label = int(train_labels.get_shape()[1])
+    cols_label = int(train_labels.get_shape()[2])
+    # Placeholder for train_features
+    train_features_pl = tf.placeholder(tf.float32, \
+                                       shape=[FLAGS.batch_size, rows, cols, channels], \
+                                       name = 'train_features_pl')
+     # Placeholder for gene_input
+    gene_input_pl = tf.placeholder(tf.float32, shape=[FLAGS.batch_size, rows, cols, channels], \
+                                 name = 'gene_input_pl')
+    # Placeholder for train_labels
+    real_images_pl = tf.placeholder(tf.float32, \
+                                 shape = [FLAGS.batch_size, rows_label, cols_label, channels], \
+                                 name = 'real_images_pl')
+
     # Create and initialize model
-    [gene_minput, gene_moutput,
-     gene_output, gene_var_list,
+    [gene_output, gene_var_list, \
      disc_real_output, disc_fake_output, disc_var_list] = \
-            srez_model.create_model(sess, noisy_train_features, train_labels)
+            srez_model.create_model(sess, gene_input_pl, real_images_pl)
+    
+    # Clip weight of discriminator
+    with tf.variable_scope('d_clip') as _:
+        d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in disc_var_list]
 
     # generator loss
-    gene_loss = srez_model.create_generator_loss(disc_fake_output, gene_output, train_features)
-    # Plot gene_loss graph
+    gene_loss = srez_model.create_generator_loss(disc_fake_output, gene_output, train_features_pl)
+    # Summary
+    tf.summary.scalar('gene_loss', gene_loss)
     summary_gene_loss = tf.summary.FileWriter(FLAGS.log_dir + '/gene_loss')
     summary_gene_loss.add_graph(gene_loss.graph)
 
@@ -182,13 +206,17 @@ def _train():
     disc_real_loss, disc_fake_loss = \
                      srez_model.create_discriminator_loss(disc_real_output, disc_fake_output)
     disc_loss = tf.add(disc_real_loss, disc_fake_loss, name='disc_loss')
-    # Plot disc_loss graph
+    # Summary
+    tf.summary.scalar('disc_real_loss', disc_real_loss)
+    tf.summary.scalar('disc_fake_loss', disc_fake_loss)
+    tf.summary.scalar('disc_loss', disc_loss)
     summary_disc_loss = tf.summary.FileWriter(FLAGS.log_dir + '/disc_loss')
     summary_disc_loss.add_graph(disc_loss.graph)
     
-    (global_step, learning_rate, gene_minimize, disc_minimize) = \
+    learning_rate_pl  = tf.placeholder(dtype=tf.float32, name='learning_rate')
+    (global_step, gene_minimize, disc_minimize) = \
             srez_model.create_optimizers(gene_loss, gene_var_list,
-                                         disc_loss, disc_var_list)
+                                         disc_loss, disc_var_list, learning_rate_pl)
 
     # Train model
     train_data = TrainData(locals())
