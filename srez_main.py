@@ -18,13 +18,22 @@ tf.app.flags.DEFINE_integer('resume', True,
 
 tf.app.flags.DEFINE_float('gene_l1_factor', 0.8,
                           "Multiplier for generator L1 loss term")
-
+# Learning rate
 tf.app.flags.DEFINE_float('learning_rate_start', 0.00005,
                           "Starting learning rate used for AdamOptimizer")
 
+tf.app.flags.DEFINE_integer('decay_steps', 20000,
+                            "Number of batches until learning rate is halved")
+
+tf.app.flags.DEFINE_integer('decay_rate', 0.5,
+                            "Decay learning rate")
+# 
+tf.app.flags.DEFINE_integer('test_vectors', 16,
+                            """Number of features to use for testing""")
+                            
 tf.app.flags.DEFINE_integer('batch_size', 16,
                             "Number of samples per batch.")
-
+# Checkpoint
 tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
                            "Output folder where checkpoints are dumped.")
 
@@ -43,9 +52,6 @@ tf.app.flags.DEFINE_string('run', 'train',
 tf.app.flags.DEFINE_float('learning_beta1', 0.5,
                           "Beta1 parameter used for AdamOptimizer")
 
-tf.app.flags.DEFINE_integer('learning_rate_half_life', 10000,
-                            "Number of batches until learning rate is halved")
-
 tf.app.flags.DEFINE_bool('log_device_placement', False,
                          "Log the device where variables are placed.")
 
@@ -58,9 +64,6 @@ tf.app.flags.DEFINE_integer('summary_period', 200,
 tf.app.flags.DEFINE_integer('random_seed', 0,
                             "Seed used to initialize rng.")
 
-tf.app.flags.DEFINE_integer('test_vectors', 16,
-                            """Number of features to use for testing""")
-                            
 tf.app.flags.DEFINE_string('train_dir', 'train',
                            "Output folder where training logs are dumped.")
 
@@ -91,7 +94,7 @@ def prepare_dirs(delete_train_dir=False):
   
     filenames = tf.gfile.ListDirectory(FLAGS.dataset)
     filenames = sorted(filenames)
-    random.shuffle(filenames)
+#    random.shuffle(filenames)
     filenames = [os.path.join(FLAGS.dataset, f) for f in filenames]
 
     return filenames
@@ -134,6 +137,7 @@ def _demo():
             srez_model.create_model(sess, features, labels)
 
     # Restore variables from checkpoint
+    # ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
     saver = tf.train.Saver()
     filename = 'checkpoint_new.txt'
     filename = os.path.join(FLAGS.checkpoint_dir, filename)
@@ -213,10 +217,22 @@ def _train():
     summary_disc_loss = tf.summary.FileWriter(FLAGS.log_dir + '/disc_loss')
     summary_disc_loss.add_graph(disc_loss.graph)
     
-    learning_rate_pl  = tf.placeholder(dtype=tf.float32, name='learning_rate')
-    (global_step, gene_minimize, disc_minimize) = \
+    # Optimizer
+    # learning_rate_pl  = tf.placeholder(dtype=tf.float32, name='learning_rate')
+    # global_step = tf.Variable(0, trainable=False)
+    global_step_pl = tf.placeholder(dtype = tf.int64, name = 'global_step_pl')
+    starter_learning_rate = FLAGS.learning_rate_start
+    learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step_pl,
+                                           FLAGS.decay_steps, FLAGS.decay_rate, staircase=True)
+    tf.summary.scalar('learning_rate_pl', learning_rate)
+    (gene_minimize, disc_minimize) = \
             srez_model.create_optimizers(gene_loss, gene_var_list,
-                                         disc_loss, disc_var_list, learning_rate_pl)
+                                         disc_loss, disc_var_list,
+                                         learning_rate)
+
+    # Save model
+    ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+    saver = tf.train.Saver(max_to_keep = 2)
 
     # Train model
     train_data = TrainData(locals())

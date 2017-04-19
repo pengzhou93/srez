@@ -6,25 +6,24 @@ import time
 
 FLAGS = tf.app.flags.FLAGS
 
-def _summarize_progress(train_data, feature, label, gene_output, batch, suffix, max_samples=8):
-    td = train_data
-
-    size = [label.shape[1], label.shape[2]]
-
-    nearest = tf.image.resize_nearest_neighbor(feature, size)
-    nearest = tf.maximum(tf.minimum(nearest, 1.0), 0.0)
-
-    bicubic = tf.image.resize_bicubic(feature, size)
-    bicubic = tf.maximum(tf.minimum(bicubic, 1.0), 0.0)
-
-    clipped = tf.maximum(tf.minimum(gene_output, 1.0), 0.0)
-
-    image   = tf.concat(axis = 2, values = [nearest, bicubic, clipped, label])
-
-    image = image[0:max_samples,:,:,:]
-    image = tf.concat(axis = 0, values = [image[i,:,:,:] for i in range(max_samples)])
-    image = td.sess.run(image)
-
+def _get_summary_image(feature, label, gene_output, max_samples=10):
+    with tf.variable_scope('summary_images') as scope:
+        size = [label.shape[1], label.shape[2]]
+        nearest = tf.image.resize_nearest_neighbor(feature, size)
+        nearest = tf.maximum(tf.minimum(nearest, 1.0), 0.0)
+    
+        bicubic = tf.image.resize_bicubic(feature, size)
+        bicubic = tf.maximum(tf.minimum(bicubic, 1.0), 0.0)
+    
+        clipped = tf.maximum(tf.minimum(gene_output, 1.0), 0.0)
+    
+        image   = tf.concat(axis = 2, values = [nearest, bicubic, clipped, label])
+    
+        image = image[0:max_samples,:,:,:]
+        image = tf.concat(axis = 0, values = [image[i,:,:,:] for i in range(max_samples)])
+    return image
+    
+def _summarize_progress(image, batch, suffix):
     filename = 'batch%06d_%s.png' % (batch, suffix)
     filename = os.path.join(FLAGS.train_dir, filename)
     scipy.misc.toimage(image, cmin=0., cmax=1.).save(filename)
@@ -33,65 +32,47 @@ def _summarize_progress(train_data, feature, label, gene_output, batch, suffix, 
 def _save_checkpoint(train_data, batch):
     td = train_data
 
-    oldname = 'checkpoint_old.txt'
     newname = 'checkpoint_new.txt'
-
-    oldname = os.path.join(FLAGS.checkpoint_dir, oldname)
     newname = os.path.join(FLAGS.checkpoint_dir, newname)
 
-    # Delete oldest checkpoint
-    try:
-        tf.gfile.Remove(oldname)
-        tf.gfile.Remove(oldname + '.meta')
-    except:
-        pass
-
-    # Rename old checkpoint
-    try:
-        tf.gfile.Rename(newname, oldname)
-        tf.gfile.Rename(newname + '.meta', oldname + '.meta')
-    except:
-        pass
-
     # Generate new checkpoint
-    saver = tf.train.Saver()
-    saver.save(td.sess, newname)
+    td.saver.save(td.sess, newname, global_step = batch)
+    print("Checkpoint saved to %s, batch %d"%(newname, batch))
 
-    print("    Checkpoint saved")
 
 def train_model(train_data):
     td = train_data
-    lrval       = tf.Variable(FLAGS.learning_rate_start, trainable = False)
-    tf.summary.scalar('learning_rate', lrval)
-    # tensorflow version 1.0
-    init = tf.global_variables_initializer()
-    td.sess.run(init)
+    # Cache test features and labels (they are small)
+    test_feature, test_label = td.sess.run([td.test_features, td.test_labels])
+    num_samples = FLAGS.test_vectors
+    image = _get_summary_image(test_feature, test_label, td.gene_output, num_samples)
+
+    summarie_op = tf.summary.merge_all()
+
+    if FLAGS.resume:
+        ckpt_path = td.ckpt.model_checkpoint_path
+        td.saver.restore(td.sess, ckpt_path)
+        print('Resume from ', ckpt_path)
+    else:
+        # tensorflow version 1.0
+        init = tf.global_variables_initializer()
+        td.sess.run(init)
  
+    tf.get_default_graph().finalize()
     start_time  = time.time()
     done  = False
     batch = 0
-    if FLAGS.resume:
-        saver = tf.train.Saver()
-        saver.restore(td.sess, './checkpoint/checkpoint_new.txt')
-        td.sess.run(lrval.assign(FLAGS.learning_rate_start))
-    assert FLAGS.learning_rate_half_life % 10 == 0
-
-    # Cache test features and labels (they are small)
-    test_feature, test_label = td.sess.run([td.test_features, td.test_labels])
-    summaries = tf.summary.merge_all()
-
     while not done:
         batch += 1
         gene_loss = disc_real_loss = disc_fake_loss = -1.234
         
-        train_features, gene_input, real_images, learning_rate = td.sess.run([td.train_features, \
+        train_features, gene_input, real_images = td.sess.run([td.train_features, \
                                                                td.gene_input, \
-                                                               td.train_labels, \
-                                                               lrval])
-        feed_dict = {td.learning_rate_pl : learning_rate, \
-                     td.train_features_pl : train_features, \
+                                                               td.train_labels])
+        feed_dict = {td.train_features_pl : train_features, \
                      td.gene_input_pl : gene_input, \
-                     td.real_images_pl : real_images}
+                     td.real_images_pl : real_images, \
+                     td.global_step_pl : batch}
 
         # Update discriptor
         d_iters = 5
@@ -102,9 +83,11 @@ def train_model(train_data):
             td.sess.run(td.disc_minimize, feed_dict = feed_dict)
 
         # Update generator
-        td.sess.run(td.gene_minimize, feed_dict = feed_dict)
+        g_iters = 5
+        for _ in range(0, g_iters):
+            td.sess.run(td.gene_minimize, feed_dict = feed_dict)
 
-        if batch % 50 == 0 or batch < 100:
+        if batch % 50 == 0:# or batch < 100:
             ops = [td.gene_loss, td.disc_real_loss, td.disc_fake_loss]
             # TODO: face verification
             gene_loss, disc_real_loss, disc_fake_loss = td.sess.run(ops, feed_dict=feed_dict)
@@ -120,26 +103,22 @@ def train_model(train_data):
             current_progress = elapsed / FLAGS.train_time
             if current_progress >= 1.0:
                 done = True
-            
-            # Update learning rate
-            if batch % FLAGS.learning_rate_half_life == 0:
-                lr_tmp = td.sess.run(lrval)
-                td.sess.run(lrval.assign(lr_tmp * 0.5))
- 
             # Summary
-            merge = td.sess.run(summaries, feed_dict = feed_dict)
+            merge = td.sess.run(summarie_op, feed_dict = feed_dict)
             td.summary_writer.add_summary(merge, batch)
             td.summary_writer.flush()
-                
+           
         if batch % FLAGS.summary_period == 0:
             # Show progress with test features
             feed_dict = {td.gene_input_pl : test_feature}
-            gene_output = td.sess.run(td.gene_output, feed_dict=feed_dict)
-            _summarize_progress(td, test_feature, test_label, gene_output, batch, 'out')
-            
+            summary_image = td.sess.run(image, feed_dict=feed_dict)
+            _summarize_progress(summary_image, batch, 'out')
+           
         if batch % FLAGS.checkpoint_period == 0:
             # Save checkpoint
             _save_checkpoint(td, batch)
+        # debug
+        # _save_checkpoint(td, batch)
 
     _save_checkpoint(td, batch)
     print('Finished training!')

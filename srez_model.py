@@ -453,7 +453,7 @@ def create_generator_loss(disc_output, gene_output, features):
     #                                                         labels = tf.ones_like(disc_output))
     # gene_ce_loss  = tf.reduce_mean(cross_entropy, name='gene_ce_loss')
     # Generator loss for wgan
-    gene_wgan_loss = tf.reduce_mean(disc_output)
+    gene_wgan_loss = - tf.reduce_mean(disc_output)
     # I.e. does the result look like the feature?
     K = int(gene_output.get_shape()[1])//int(features.get_shape()[1])
     assert K == 2 or K == 4 or K == 8    
@@ -475,15 +475,15 @@ def create_discriminator_loss(disc_real_output, disc_fake_output):
     #                                                              labels = tf.zeros_like(disc_fake_output))
     # disc_fake_loss     = tf.reduce_mean(cross_entropy_fake, name='disc_fake_loss')
     # Discriminator loss for wgan
-    disc_real_loss = tf.reduce_mean(disc_real_output)
-    disc_fake_loss = - tf.reduce_mean(disc_fake_output)
+    disc_real_loss = - tf.reduce_mean(disc_real_output)
+    disc_fake_loss = tf.reduce_mean(disc_fake_output)
     return disc_real_loss, disc_fake_loss
 
 def create_optimizers(gene_loss, gene_var_list,
                       disc_loss, disc_var_list,
-                      learning_rate_pl):    
+                      learning_rate):    
     # TBD: Does this global step variable need to be manually incremented? I think so.
-    global_step    = tf.Variable(0, dtype=tf.int64,   trainable=False, name='global_step')
+    # global_step    = tf.Variable(0, dtype=tf.int64,   trainable=False, name='global_step')
      
     # gene_opti = tf.train.AdamOptimizer(learning_rate=learning_rate_pl,
     #                                    beta1=FLAGS.learning_beta1,
@@ -491,15 +491,15 @@ def create_optimizers(gene_loss, gene_var_list,
     # disc_opti = tf.train.AdamOptimizer(learning_rate=learning_rate_pl,
     #                                    beta1=FLAGS.learning_beta1,
     #                                    name='disc_optimizer')
-    gene_opti = tf.train.RMSPropOptimizer(learning_rate = learning_rate_pl, \
+    gene_opti = tf.train.RMSPropOptimizer(learning_rate = learning_rate, \
                                           name = 'gene_optimizer_RMS')
-    disc_opti = tf.train.RMSPropOptimizer(learning_rate = learning_rate_pl, \
+    disc_opti = tf.train.RMSPropOptimizer(learning_rate = learning_rate, \
                                           name = 'disc_optimizer_RMS')
 
-    gene_minimize = gene_opti.minimize(gene_loss, var_list=gene_var_list, \
-                                       name='gene_loss_minimize', global_step=global_step)
+    gene_minimize = gene_opti.minimize(gene_loss, var_list = gene_var_list, \
+                                       name = 'gene_loss_minimize')
     
     disc_minimize     = disc_opti.minimize(disc_loss, var_list=disc_var_list, \
-                                           name='disc_loss_minimize', global_step=global_step)
+                                           name = 'disc_loss_minimize')#, global_step = global_step)
     
-    return (global_step, gene_minimize, disc_minimize)
+    return (gene_minimize, disc_minimize)
