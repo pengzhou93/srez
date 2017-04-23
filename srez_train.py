@@ -87,7 +87,7 @@ def train_model(train_data):
         for _ in range(0, g_iters):
             td.sess.run(td.gene_minimize, feed_dict = feed_dict)
 
-        if batch % 50 == 0:# or batch < 100:
+        if batch % 50 == 0 or batch < 100:
             ops = [td.gene_loss, td.disc_real_loss, td.disc_fake_loss]
             # TODO: face verification
             gene_loss, disc_real_loss, disc_fake_loss = td.sess.run(ops, feed_dict=feed_dict)
