@@ -95,7 +95,7 @@ def show_images(images):
         temp = images[i + 1]
         # temp = cv2.cvtColor(images[i + 1], cv2.COLOR_BGR2RGB)
         image = np.concatenate((image, temp), axis = 0)
-    misc.imshow(image)
+    misc.imsave('test_images.png', image)
     # cv2.imshow("test images", image)
     # cv2.waitKey(0)
     assert 0, "Exit in show_images()"
