@@ -73,6 +73,33 @@ tf.app.flags.DEFINE_string('log_dir', 'log',
 tf.app.flags.DEFINE_integer('train_time', 2000,
                             "Time in minutes to train the model")
 
+def show_images(images):
+    """
+     Show one batch images
+    
+    Parameters:
+    ----------
+     images : numpy
+         shape : (num_images, height, width, channel)	  
+     
+    Returns:
+    ----------
+     None 
+    """
+    import cv2
+    from scipy import misc
+    num_images = images.shape[0]
+    image = images[0]
+    # image = cv2.cvtColor(images[0], cv2.COLOR_BGR2RGB)
+    for i in range(num_images - 1):
+        temp = images[i + 1]
+        # temp = cv2.cvtColor(images[i + 1], cv2.COLOR_BGR2RGB)
+        image = np.concatenate((image, temp), axis = 0)
+    misc.imshow(image)
+    # cv2.imshow("test images", image)
+    # cv2.waitKey(0)
+    assert 0, "Exit in show_images()"
+
 def prepare_dirs(delete_train_dir=False):
     # Create checkpoint dir (do not delete anything)
     if not tf.gfile.Exists(FLAGS.checkpoint_dir):
@@ -167,6 +194,9 @@ def _train():
     # train_features : down sample images(4x)   train_labels : original images(64 64 3)
     train_features, train_labels = srez_input.setup_inputs(sess, train_filenames)
     test_features,  test_labels  = srez_input.setup_inputs(sess, test_filenames)
+    # XXX: debug
+    test_images = sess.run(test_features)
+    show_images(test_images)
 
     # Add some noise during training (think denoising autoencoders)
     noise_level = .03
