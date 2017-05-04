@@ -447,7 +447,7 @@ def _downscale(images, K):
                               padding='SAME')
     return downscaled
 
-def create_generator_loss(disc_output, gene_output, features):
+def create_generator_loss(disc_output, gene_output, features,labels):
     # I.e. did we fool the discriminator?
     # cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(logits = disc_output,
     #                                                         labels = tf.ones_like(disc_output))
@@ -459,7 +459,7 @@ def create_generator_loss(disc_output, gene_output, features):
     assert K == 2 or K == 4 or K == 8    
     downscaled = _downscale(gene_output, K)
     
-    gene_l1_loss  = tf.reduce_mean(tf.abs(downscaled - features), name='gene_l1_loss')
+    gene_l1_loss  = tf.reduce_mean(tf.abs(gene_output - labels), name='gene_l1_loss')
 
     gene_loss     = tf.add((1.0 - FLAGS.gene_l1_factor) * gene_wgan_loss,
                            FLAGS.gene_l1_factor * gene_l1_loss, name='gene_loss')

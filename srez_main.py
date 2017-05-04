@@ -13,10 +13,22 @@ import tensorflow as tf
 FLAGS = tf.app.flags.FLAGS
 
 # Configuration (alphabetically)
+tf.app.flags.DEFINE_string('root_dir', 'results',
+                           'Root dir for output files')
+
+tf.app.flags.DEFINE_string('train_dir', 'train',
+                           "Output folder where training logs are dumped.")
+
+tf.app.flags.DEFINE_string('log_dir', 'log',
+                           "Log folder where training logs are dumped.")
+
+tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
+                           "Output folder where checkpoints are dumped.")
+
 tf.app.flags.DEFINE_integer('resume', True,
                             "Resume training.")
 
-tf.app.flags.DEFINE_float('gene_l1_factor', 0.8,
+tf.app.flags.DEFINE_float('gene_l1_factor', 0.5,
                           "Multiplier for generator L1 loss term")
 # Learning rate
 tf.app.flags.DEFINE_float('learning_rate_start', 0.00005,
@@ -34,10 +46,7 @@ tf.app.flags.DEFINE_integer('test_vectors', 16,
 tf.app.flags.DEFINE_integer('batch_size', 16,
                             "Number of samples per batch.")
 # Checkpoint
-tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
-                           "Output folder where checkpoints are dumped.")
-
-tf.app.flags.DEFINE_integer('checkpoint_period', 10000,
+tf.app.flags.DEFINE_integer('checkpoint_period', 1000,
                             "Number of batches in between checkpoints")
 
 tf.app.flags.DEFINE_string('dataset', 'dataset',
@@ -64,14 +73,9 @@ tf.app.flags.DEFINE_integer('summary_period', 200,
 tf.app.flags.DEFINE_integer('random_seed', 0,
                             "Seed used to initialize rng.")
 
-tf.app.flags.DEFINE_string('train_dir', 'train',
-                           "Output folder where training logs are dumped.")
-
-tf.app.flags.DEFINE_string('log_dir', 'log',
-                           "Log folder where training logs are dumped.")
-
 tf.app.flags.DEFINE_integer('train_time', 2000,
                             "Time in minutes to train the model")
+
 
 def show_images(images):
     """
@@ -101,30 +105,36 @@ def show_images(images):
     assert 0, "Exit in show_images()"
 
 def prepare_dirs(delete_train_dir=False):
-    # Create checkpoint dir (do not delete anything)
-    if not tf.gfile.Exists(FLAGS.checkpoint_dir):
-        tf.gfile.MakeDirs(FLAGS.checkpoint_dir)
-    
-    # Cleanup train dir
-    if delete_train_dir:
-        if tf.gfile.Exists(FLAGS.train_dir):
-            tf.gfile.DeleteRecursively(FLAGS.train_dir)
-        tf.gfile.MakeDirs(FLAGS.train_dir)
+    # images dir
+    imgs_dir = os.path.join(FLAGS.root_dir, 'l1_{}'.format(FLAGS.gene_l1_factor), FLAGS.train_dir)
+    if not tf.gfile.Exists(imgs_dir):
+        tf.gfile.MakeDirs(imgs_dir)
 
-    if not tf.gfile.Exists(FLAGS.train_dir):
-        tf.gfile.MakeDirs(FLAGS.train_dir)
+    # Create checkpoint dir (do not delete anything)
+    ckpt_dir = os.path.join(FLAGS.root_dir, 'l1_{}'.format(FLAGS.gene_l1_factor), \
+                            FLAGS.checkpoint_dir)
+    if not tf.gfile.Exists(ckpt_dir):
+        tf.gfile.MakeDirs(ckpt_dir)
+
+    # log dir
+    log_dir = os.path.join(FLAGS.root_dir, 'l1_{}'.format(FLAGS.gene_l1_factor), \
+                           FLAGS.log_dir)
+    if not tf.gfile.Exists(log_dir):
+        tf.gfile.MakeDirs(log_dir)
+
+    dirs = TrainData(locals())
 
     # Return names of training files
     if not tf.gfile.Exists(FLAGS.dataset) or \
        not tf.gfile.IsDirectory(FLAGS.dataset):
         raise FileNotFoundError("Could not find folder `%s'" % (FLAGS.dataset,))
-  
+
     filenames = tf.gfile.ListDirectory(FLAGS.dataset)
     filenames = sorted(filenames)
 #    random.shuffle(filenames)
     filenames = [os.path.join(FLAGS.dataset, f) for f in filenames]
 
-    return filenames
+    return filenames, dirs
 
 
 def setup_tensorflow():
@@ -139,9 +149,8 @@ def setup_tensorflow():
     random.seed(FLAGS.random_seed)
     np.random.seed(FLAGS.random_seed)
 
-    summary_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     # summary_writer = tf.train.SummaryWriter(FLAGS.train_dir, sess.graph)
-    return sess, summary_writer
+    return sess
 
 def _demo():
     # Load checkpoint
@@ -149,10 +158,10 @@ def _demo():
         raise FileNotFoundError("Could not find folder `%s'" % (FLAGS.checkpoint_dir,))
 
     # Setup global tensorflow state
-    sess, summary_writer = setup_tensorflow()
+    sess = setup_tensorflow()
 
     # Prepare directories
-    filenames = prepare_dirs(delete_train_dir=False)
+    filenames, dirs = prepare_dirs()
 
     # Setup async input queues
     features, labels = srez_input.setup_inputs(sess, filenames)
@@ -179,10 +188,12 @@ class TrainData(object):
 
 def _train():
     # Setup global tensorflow state
-    sess, summary_writer = setup_tensorflow()
+    sess = setup_tensorflow()
 
     # Prepare directories
-    all_filenames = prepare_dirs(delete_train_dir=False)
+    all_filenames, dirs = prepare_dirs()
+
+    summary_writer = tf.summary.FileWriter(dirs.log_dir, sess.graph)
 
     # Separate training and test sets
     train_filenames = all_filenames[:-FLAGS.test_vectors]
@@ -195,8 +206,8 @@ def _train():
     train_features, train_labels = srez_input.setup_inputs(sess, train_filenames)
     test_features,  test_labels  = srez_input.setup_inputs(sess, test_filenames)
     # XXX: debug
-    test_images = sess.run(test_features)
-    show_images(test_images)
+    # test_images = sess.run(test_features)
+    # show_images(test_images)
 
     # Add some noise during training (think denoising autoencoders)
     noise_level = .03
@@ -230,10 +241,11 @@ def _train():
         d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in disc_var_list]
 
     # generator loss
-    gene_loss = srez_model.create_generator_loss(disc_fake_output, gene_output, train_features_pl)
+    gene_loss = srez_model.create_generator_loss(disc_fake_output, gene_output, train_features_pl,\
+                                                 train_labels)
     # Summary
     tf.summary.scalar('gene_loss', gene_loss)
-    summary_gene_loss = tf.summary.FileWriter(FLAGS.log_dir + '/gene_loss')
+    summary_gene_loss = tf.summary.FileWriter(dirs.log_dir + '/gene_loss')
     summary_gene_loss.add_graph(gene_loss.graph)
 
     # discriminator loss
@@ -244,7 +256,7 @@ def _train():
     tf.summary.scalar('disc_real_loss', disc_real_loss)
     tf.summary.scalar('disc_fake_loss', disc_fake_loss)
     tf.summary.scalar('disc_loss', disc_loss)
-    summary_disc_loss = tf.summary.FileWriter(FLAGS.log_dir + '/disc_loss')
+    summary_disc_loss = tf.summary.FileWriter(dirs.log_dir + '/disc_loss')
     summary_disc_loss.add_graph(disc_loss.graph)
     
     # Optimizer
@@ -261,7 +273,7 @@ def _train():
                                          learning_rate)
 
     # Save model
-    ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+    ckpt = tf.train.get_checkpoint_state(dirs.ckpt_dir)
     saver = tf.train.Saver(max_to_keep = 2)
 
     # Train model
@@ -270,9 +282,6 @@ def _train():
 
 def main(argv=None):
     # Training or showing off?
-    if tf.gfile.Exists(FLAGS.log_dir):
-        tf.gfile.DeleteRecursively(FLAGS.log_dir)
-    tf.gfile.MakeDirs(FLAGS.log_dir)
 
     if FLAGS.run == 'demo':
         _demo()
