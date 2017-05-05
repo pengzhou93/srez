@@ -25,7 +25,10 @@ tf.app.flags.DEFINE_string('log_dir', 'log',
 tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
                            "Output folder where checkpoints are dumped.")
 
-tf.app.flags.DEFINE_integer('resume', True,
+tf.app.flags.DEFINE_string('disc_type', 'gan',
+                            "Discriminator type [gan, wgan]")
+
+tf.app.flags.DEFINE_integer('resume', False,
                             "Resume training.")
 
 tf.app.flags.DEFINE_float('gene_l1_factor', 0.5,
@@ -106,18 +109,24 @@ def show_images(images):
 
 def prepare_dirs(delete_train_dir=False):
     # images dir
-    imgs_dir = os.path.join(FLAGS.root_dir, 'l1_{}'.format(FLAGS.gene_l1_factor), FLAGS.train_dir)
+    imgs_dir = os.path.join(FLAGS.root_dir,
+                            FLAGS.disc_type,
+                            'l1_{}'.format(FLAGS.gene_l1_factor), FLAGS.train_dir)
     if not tf.gfile.Exists(imgs_dir):
         tf.gfile.MakeDirs(imgs_dir)
 
     # Create checkpoint dir (do not delete anything)
-    ckpt_dir = os.path.join(FLAGS.root_dir, 'l1_{}'.format(FLAGS.gene_l1_factor), \
+    ckpt_dir = os.path.join(FLAGS.root_dir,
+                            FLAGS.disc_type,
+                            'l1_{}'.format(FLAGS.gene_l1_factor), \
                             FLAGS.checkpoint_dir)
     if not tf.gfile.Exists(ckpt_dir):
         tf.gfile.MakeDirs(ckpt_dir)
 
     # log dir
-    log_dir = os.path.join(FLAGS.root_dir, 'l1_{}'.format(FLAGS.gene_l1_factor), \
+    log_dir = os.path.join(FLAGS.root_dir,
+                           FLAGS.disc_type,
+                           'l1_{}'.format(FLAGS.gene_l1_factor), \
                            FLAGS.log_dir)
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
@@ -186,7 +195,7 @@ class TrainData(object):
     def __init__(self, dictionary):
         self.__dict__.update(dictionary)
 
-def _train():
+def wgan_train():
     # Setup global tensorflow state
     sess = setup_tensorflow()
 
@@ -241,8 +250,10 @@ def _train():
         d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in disc_var_list]
 
     # generator loss
-    gene_loss = srez_model.create_generator_loss(disc_fake_output, gene_output, train_features_pl,\
-                                                 train_labels)
+    gene_loss = srez_model.create_generator_loss_wgan(disc_fake_output,
+                                                      gene_output,
+                                                      train_features_pl,
+                                                      train_labels)
     # Summary
     tf.summary.scalar('gene_loss', gene_loss)
     summary_gene_loss = tf.summary.FileWriter(dirs.log_dir + '/gene_loss')
@@ -250,7 +261,7 @@ def _train():
 
     # discriminator loss
     disc_real_loss, disc_fake_loss = \
-                     srez_model.create_discriminator_loss(disc_real_output, disc_fake_output)
+                     srez_model.create_discriminator_loss_wgan(disc_real_output, disc_fake_output)
     disc_loss = tf.add(disc_real_loss, disc_fake_loss, name='disc_loss')
     # Summary
     tf.summary.scalar('disc_real_loss', disc_real_loss)
@@ -268,7 +279,7 @@ def _train():
                                            FLAGS.decay_steps, FLAGS.decay_rate, staircase=True)
     tf.summary.scalar('learning_rate_pl', learning_rate)
     (gene_minimize, disc_minimize) = \
-            srez_model.create_optimizers(gene_loss, gene_var_list,
+            srez_model.create_optimizers_wgan(gene_loss, gene_var_list,
                                          disc_loss, disc_var_list,
                                          learning_rate)
 
@@ -278,7 +289,104 @@ def _train():
 
     # Train model
     train_data = TrainData(locals())
-    srez_train.train_model(train_data)
+    srez_train.train_model_wgan(train_data)
+
+def gan_train():
+    # Setup global tensorflow state
+    sess = setup_tensorflow()
+
+    # Prepare directories
+    all_filenames, dirs = prepare_dirs()
+
+    summary_writer = tf.summary.FileWriter(dirs.log_dir, sess.graph)
+
+    # Separate training and test sets
+    train_filenames = all_filenames[:-FLAGS.test_vectors]
+    test_filenames  = all_filenames[-FLAGS.test_vectors:]
+
+    # TBD: Maybe download dataset here
+    
+    # Setup async input queues
+    # train_features : down sample images(4x)   train_labels : original images(64 64 3)
+    train_features, train_labels = srez_input.setup_inputs(sess, train_filenames)
+    test_features,  test_labels  = srez_input.setup_inputs(sess, test_filenames)
+    # XXX: debug
+    # test_images = sess.run(test_features)
+    # show_images(test_images)
+
+    # Add some noise during training (think denoising autoencoders)
+    noise_level = .03
+    gene_input = train_features + \
+                           tf.random_normal(train_features.get_shape(), stddev=noise_level)
+
+    rows      = int(train_features.get_shape()[1])
+    cols      = int(train_features.get_shape()[2])
+    channels  = int(train_features.get_shape()[3])
+    rows_label = int(train_labels.get_shape()[1])
+    cols_label = int(train_labels.get_shape()[2])
+    # Placeholder for train_features
+    train_features_pl = tf.placeholder(tf.float32, \
+                                       shape=[FLAGS.batch_size, rows, cols, channels], \
+                                       name = 'train_features_pl')
+     # Placeholder for gene_input
+    gene_input_pl = tf.placeholder(tf.float32, shape=[FLAGS.batch_size, rows, cols, channels], \
+                                 name = 'gene_input_pl')
+    # Placeholder for train_labels
+    real_images_pl = tf.placeholder(tf.float32, \
+                                 shape = [FLAGS.batch_size, rows_label, cols_label, channels], \
+                                 name = 'real_images_pl')
+
+    # Create and initialize model
+    [gene_output, gene_var_list, \
+     disc_real_output, disc_fake_output, disc_var_list] = \
+            srez_model.create_model(sess, gene_input_pl, real_images_pl)
+    
+    # # Clip weight of discriminator
+    # with tf.variable_scope('d_clip') as _:
+    #     d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in disc_var_list]
+
+    # generator loss
+    gene_loss = srez_model.create_generator_loss_gan(disc_fake_output,
+                                                     gene_output,
+                                                     train_features_pl)
+    # Summary
+    tf.summary.scalar('gene_loss', gene_loss)
+    summary_gene_loss = tf.summary.FileWriter(dirs.log_dir + '/gene_loss')
+    summary_gene_loss.add_graph(gene_loss.graph)
+
+    # discriminator loss
+    disc_real_loss, disc_fake_loss = \
+                     srez_model.create_discriminator_loss_gan(disc_real_output,
+                                                          disc_fake_output)
+    disc_loss = tf.add(disc_real_loss, disc_fake_loss, name='disc_loss')
+    # Summary
+    tf.summary.scalar('disc_real_loss', disc_real_loss)
+    tf.summary.scalar('disc_fake_loss', disc_fake_loss)
+    tf.summary.scalar('disc_loss', disc_loss)
+    summary_disc_loss = tf.summary.FileWriter(dirs.log_dir + '/disc_loss')
+    summary_disc_loss.add_graph(disc_loss.graph)
+    
+    # Optimizer
+    # learning_rate_pl  = tf.placeholder(dtype=tf.float32, name='learning_rate')
+    # global_step = tf.Variable(0, trainable=False)
+    global_step_pl = tf.placeholder(dtype = tf.int64, name = 'global_step_pl')
+    starter_learning_rate = FLAGS.learning_rate_start
+    learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step_pl,
+                                           FLAGS.decay_steps, FLAGS.decay_rate, staircase=True)
+    tf.summary.scalar('learning_rate_pl', learning_rate)
+    (gene_minimize, disc_minimize) = \
+            srez_model.create_optimizers_gan(gene_loss, gene_var_list,
+                                         disc_loss, disc_var_list,
+                                         learning_rate)
+
+    # Save model
+    ckpt = tf.train.get_checkpoint_state(dirs.ckpt_dir)
+    saver = tf.train.Saver(max_to_keep = 2)
+
+    # Train model
+    train_data = TrainData(locals())
+    srez_train.train_model_gan(train_data)
+
 
 def main(argv=None):
     # Training or showing off?
@@ -286,7 +394,14 @@ def main(argv=None):
     if FLAGS.run == 'demo':
         _demo()
     elif FLAGS.run == 'train':
-        _train()
+        if FLAGS.disc_type == 'wgan':
+            print("\t Train wgan")
+            wgan_train()
+        elif FLAGS.disc_type == 'gan':
+            print("\t Train gan")
+            gan_train()
+        else:
+            assert 0, "Please assign correct value of {}".format(FLAGS.disc_type)
 
 if __name__ == '__main__':
   tf.app.run()
