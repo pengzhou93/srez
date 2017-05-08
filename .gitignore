@@ -1,9 +1,8 @@
+results/
 *.png
 .idea/
-log/
 __pycache__/
-checkpoint*/
 dataset/
 dataset
-train*/
+
 
