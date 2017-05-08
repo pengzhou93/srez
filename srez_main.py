@@ -1,12 +1,15 @@
+import importlib
+import sys
 import srez_demo
-import srez_input
-import srez_model
-import srez_train
+from inputs import srez_input
+from networks import srez_model
+from train import srez_train
 
 import os.path
 import random
 import numpy as np
 import numpy.random
+import pprint
 
 import tensorflow as tf
 
@@ -25,8 +28,8 @@ tf.app.flags.DEFINE_string('log_dir', 'log',
 tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
                            "Output folder where checkpoints are dumped.")
 
-tf.app.flags.DEFINE_string('disc_type', 'gan',
-                            "Discriminator type [gan, wgan]")
+tf.app.flags.DEFINE_string('train_type', 'gan_gen_subpixel',
+                            '''[gan, wgan, gan_gen_subpixel]''')
 
 tf.app.flags.DEFINE_integer('resume', True,
                             "Resume training.")
@@ -107,7 +110,7 @@ def show_images(images):
     # cv2.waitKey(0)
     assert 0, "Exit in show_images()"
 
-def prepare_dirs(delete_train_dir=False):
+def prepare_dirs():
     # images dir
     imgs_dir = os.path.join(FLAGS.root_dir,
                             FLAGS.disc_type,
@@ -390,18 +393,24 @@ def gan_train():
 
 def main(argv=None):
     # Training or showing off?
-
+    pp = pprint.PrettyPrinter()
+    pp.pprint(FLAGS.__flags)
+    
     if FLAGS.run == 'demo':
         _demo()
     elif FLAGS.run == 'train':
-        if FLAGS.disc_type == 'wgan':
+        if FLAGS.train_type == 'wgan':
             print("\t Train wgan")
             wgan_train()
-        elif FLAGS.disc_type == 'gan':
+        elif FLAGS.train_type == 'gan':
             print("\t Train gan")
             gan_train()
+        elif FLAGS.train_type == 'gan_gen_subpixel':
+            sys.path.append('train')
+            importlib.import_module('gan_subpixel_train').gan_subpixel_train()
+            
         else:
-            assert 0, "Please assign correct value of {}".format(FLAGS.disc_type)
+            assert 0, "Please assign correct value of {}".format(FLAGS.train_type)
 
 if __name__ == '__main__':
   tf.app.run()

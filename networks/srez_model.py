@@ -1,3 +1,4 @@
+from layers.subpixel import PS  # subpixel layer
 import numpy as np
 import tensorflow as tf
 
@@ -296,6 +297,15 @@ class Model:
 
         self.outputs.append(out)
         return self        
+
+    def add_upscale_subpixel(self, r, color = True):
+        """Add subpixel layer for upscaling
+        """
+        assert self.get_output().get_shape().as_list()[-1] == 48, \
+            "Input of subpixel's channel should be 48"
+        out = PS(self.get_output(), r, color)
+        self.outputs.append(out)
+        return self
 
     def get_output(self):
         """Returns the output from the topmost layer of the network"""
