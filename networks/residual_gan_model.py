@@ -89,7 +89,13 @@ def generator_network(features, channels):
 
         model.add_conv2d(channels, mapsize = 3, stride = 1, stddev_factor = 1.)
         # model.add_sigmoid()
+
+        # residual images
         model.add_tanh()
+
+        # Add shortcut layer
+        output = tf.add(features, model.get_output(), name = "gene_output")
+        model.outputs.append(output)
         
         new_vars  = tf.global_variables()
         gene_vars = list(set(new_vars) - set(old_vars))
