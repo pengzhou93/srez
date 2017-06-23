@@ -48,23 +48,22 @@ def train():
                                    shape=[FLAGS.batch_size, rows_label, cols_label, channels], \
                                    name = 'gene_input_pl')
     # Placeholder for residual image
-    residual_images_pl = tf.placeholder(tf.float32,
-                                shape = [FLAGS.batch_size, rows_label, cols_label, channels],
-                                name = 'residual_images_pl')
+    # residual_images_pl = tf.placeholder(tf.float32,
+    #                             shape = [FLAGS.batch_size, rows_label, cols_label, channels],
+    #                             name = 'residual_images_pl')
 
     # Create and initialize model
     [subpixel_output, subpixel_var_list,
      gene_output, gene_var_list, \
      disc_real_output, disc_fake_output, disc_var_list] = \
             residual_gan_model.create_residual_gan_model(sess, subpixel_input_pl,
-                                                         gene_input_pl, real_images_pl,
-                                                         residual_images_pl)
+                                                         gene_input_pl, real_images_pl)
     
     # subpixel network loss
     subpixel_loss = residual_gan_model.subpixel_network_loss(subpixel_output, real_images_pl)
     subpixel_loss_pb = tf.summary.scalar('loss/subpixel_loss', subpixel_loss)
     # generator loss
-    gene_loss = residual_gan_model.gan_generator_loss(gene_output, residual_images_pl,
+    gene_loss = residual_gan_model.gan_generator_loss(gene_output, real_images_pl,
                                                       disc_fake_output,
                                                       FLAGS.gene_l1_factor)
     # Summary
@@ -166,7 +165,7 @@ def _gan_train(train_data):
                 feed_dict = {td.subpixel_input_pl : test_feature}
                 subpixel_output = td.sess.run(td.subpixel_output,
                                               feed_dict = feed_dict)
-                subpixel_output = utils.inverse_transform(subpixel_output)
+                # subpixel_output = utils.inverse_transform(subpixel_output)
                 tmp_file = os.path.join(dirs.imgs_lf_dir, 'subpixel_%d.png'%step)
                 utils.save_images([subpixel_output, test_label], (16, 2), tmp_file)
                 # summary
@@ -196,11 +195,11 @@ def _gan_train(train_data):
         [_, subpixel_output] = td.sess.run([td.subpixel_minimize,
                                             td.subpixel_output],
                                            feed_dict = subpixel_feed_dict)
-        subpixel_images = utils.inverse_transform(subpixel_output)
-        residual_images = real_images - subpixel_images
+        subpixel_images = subpixel_output
+        # residual_images = real_images - subpixel_images
         
         gan_feed_dict = {td.gene_input_pl : subpixel_output,
-                         td.residual_images_pl : residual_images,
+                         td.real_images_pl : real_images, 
                          td.global_step_pl : batch}
         # Update discriptor
         d_iters = 5
@@ -217,7 +216,6 @@ def _gan_train(train_data):
             sum_feed_dict = {td.subpixel_input_pl : subpixel_input,
                              td.real_images_pl : real_images,
                              td.gene_input_pl : subpixel_output,
-                             td.residual_images_pl : residual_images,
                              td.global_step_pl : batch}
             ops = [td.subpixel_loss, td.subpixel_lr,
                    td.gene_loss, td.disc_real_loss,
@@ -249,17 +247,19 @@ def _gan_train(train_data):
             sum_feed_dict = {td.subpixel_input_pl : test_feature}
             test_subpixel_output = td.sess.run(td.subpixel_output,
                                                feed_dict = sum_feed_dict)
+            
             # generated low frequency images
-            test_subpixel_images = utils.inverse_transform(test_subpixel_output)
+            test_subpixel_images = test_subpixel_output
             sum_feed_dict.update({td.gene_input_pl : test_subpixel_output})
-            # generated residual images
+            # generated super resolution images
             test_gene_output = td.sess.run(td.gene_output,
                                            feed_dict = sum_feed_dict)
-            test_gene_output_images = (test_gene_output + 1)/2
+            test_gene_output_images = np.clip(test_gene_output, 0, 1)
 
-            # super resolution images
-            test_sp_images = test_subpixel_images + test_gene_output
-            test_sp_images_clip = np.clip(test_sp_images, 0, 1)
+            # residual images
+            test_residual_images = test_gene_output_images - test_subpixel_images
+            test_residual_images = utils.inverse_transform(test_residual_images)
+            test_residual_images_clip = np.clip(test_residual_images, 0, 1)
             
             # get nearest and bicubic images for test
             test_nn, test_bic = td.sess.run(sum_images)
@@ -267,8 +267,8 @@ def _gan_train(train_data):
             test_file = os.path.join(dirs.imgs_dir, 'subpixel_%d.png'%batch)        
             # utils.save_images([test_nn, test_label], (16, 2), test_file)
             utils.save_images([test_nn, test_bic,
-                               test_subpixel_images, test_gene_output_images,
-                               test_sp_images_clip, test_label], (16, 6), test_file)
+                               test_subpixel_images, test_residual_images_clip,
+                               test_gene_output_images, test_label], (16, 6), test_file)
 
             pass
         

@@ -28,8 +28,8 @@ tf.app.flags.DEFINE_string('log_dir', 'log',
 tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
                            "Output folder where checkpoints are dumped.")
 
-tf.app.flags.DEFINE_string('train_type', 'residual_gan',
-                            '''[gan, wgan, gan_gen_subpixel, residual_gan]''')
+tf.app.flags.DEFINE_string('train_type', 'shortcut_gen',
+                            '''[gan, wgan, gan_gen_subpixel, shortcut_gen]''')
 
 tf.app.flags.DEFINE_integer('resume', True,
                             "Resume training.")
@@ -420,8 +420,8 @@ def main(argv=None):
         elif FLAGS.train_type == 'gan_gen_subpixel':
             print("\t Train gan_gen_subpixel")
             importlib.import_module('gan_subpixel_train').gan_subpixel_train()
-        elif FLAGS.train_type == 'residual_gan':
-            print("\t Train residual gan")
+        elif FLAGS.train_type == 'shortcut_gen':
+            print("\t Train shortcut generator")
             importlib.import_module('residual_gan_train').train()
             
         else:

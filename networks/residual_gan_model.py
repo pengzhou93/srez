@@ -8,7 +8,7 @@ slim = tf.contrib.slim
 
 def create_residual_gan_model(sess, subpixel_input_pl,
                               gene_input_pl, real_images_pl,
-                              residual_images_pl, channels = 3):
+                              channels = 3):
     """
      Create gene and disc networks
     
@@ -22,16 +22,17 @@ def create_residual_gan_model(sess, subpixel_input_pl,
     ----------
      list 
     """
-    # generate low frequency image
+
     # subpixel_output, subpixel_var_list = subpixel_network(subpixel_input_pl)    
     # subpixel_output, subpixel_var_list = subpixel_network_v2(subpixel_input_pl)
+    # generate low frequency image [0, 1]
     subpixel_output, subpixel_var_list = subpixel_network_v3(subpixel_input_pl)
 
-    # generate high frequency image
+    # generate high frequency image [0, 1]
     gene_output, gene_var_list = generator_network(gene_input_pl, channels)
 
     # Discriminator with real data
-    disc_real_input = tf.identity(residual_images_pl, name='disc_real_input')
+    disc_real_input = tf.identity(real_images_pl, name='disc_real_input')
     # TBD: Is there a better way to instance the discriminator?
     with tf.variable_scope('disc') as scope:
         disc_real_output, disc_var_list = \
@@ -88,21 +89,24 @@ def generator_network(features, channels):
         # model.add_upscale_subpixel(r = ratio, color=True)
 
         model.add_conv2d(channels, mapsize = 3, stride = 1, stddev_factor = 1.)
-        # model.add_sigmoid()
 
         # residual images
+        # model.add_sigmoid()
         model.add_tanh()
 
         # Add shortcut layer
-        output = tf.add(features, model.get_output(), name = "gene_output")
+        output = tf.add(features, model.get_output())
         model.outputs.append(output)
+        # output_clip = tf.clip_by_value(output, 0, 1, name = "gene_output")
+        # model.outputs.append(output_clip)
+        # model.add_tanh()
         
         new_vars  = tf.global_variables()
         gene_vars = list(set(new_vars) - set(old_vars))
 
     return model.get_output(), gene_vars
 
-def gan_generator_loss(gene_output, residual_images_pl,
+def gan_generator_loss(gene_output, real_images_pl,
                        disc_output, gene_l1_factor):
     with tf.variable_scope("gan_generator_loss"):
         # I.e. did we fool the discriminator?
@@ -116,7 +120,7 @@ def gan_generator_loss(gene_output, residual_images_pl,
         # downscaled = _downscale(gene_output, K)
         # gene_l1_loss  = tf.reduce_mean(tf.abs(downscaled - train_features_pl), name='gene_l1_loss')    
         # gene_l2_loss  = tf.reduce_mean(tf.square(gene_output - real_images_pl), name='gene_l2_loss')
-        gene_l1_loss  = tf.reduce_mean(tf.abs(gene_output - residual_images_pl),
+        gene_l1_loss  = tf.reduce_mean(tf.abs(gene_output - real_images_pl),
                                        name='gene_l1_loss')
     
         gene_loss     = tf.add((1.0 - gene_l1_factor) * gene_ce_loss,
@@ -234,11 +238,11 @@ def subpixel_network_v3(x):
     new_vars  = tf.global_variables()
     subpixel_var_list = list(set(new_vars) - set(old_vars))
 
-    return tf.tanh(net), subpixel_var_list      # [-1, 1]
+    return tf.sigmoid(net), subpixel_var_list
+    # return tf.tanh(net), subpixel_var_list      # [-1, 1]
 
 def subpixel_network_loss(subpixel_output, real_images_pl):
     with tf.variable_scope("subpixel_network_loss"):
-        real_images_pl = (real_images_pl - 0.5) * 2
         loss = tf.reduce_mean(tf.abs(subpixel_output - real_images_pl))
         # loss = tf.reduce_mean(tf.square(subpixel_output - real_images_pl))
     return loss
