@@ -28,22 +28,31 @@ tf.app.flags.DEFINE_string('log_dir', 'log',
 tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint',
                            "Output folder where checkpoints are dumped.")
 
-tf.app.flags.DEFINE_string('train_type', 'gan_gen_subpixel',
-                            '''[gan, wgan, gan_gen_subpixel]''')
+tf.app.flags.DEFINE_string('train_type', 'residual_gan',
+                            '''[gan, wgan, gan_gen_subpixel, residual_gan]''')
 
 tf.app.flags.DEFINE_integer('resume', True,
                             "Resume training.")
 
-tf.app.flags.DEFINE_float('gene_l1_factor', 0.5,
+tf.app.flags.DEFINE_float('gene_l1_factor', 0.9,
                           "Multiplier for generator L1 loss term")
-# Learning rate
-tf.app.flags.DEFINE_float('learning_rate_start', 0.00005,
+# Learning rate subpixel
+tf.app.flags.DEFINE_float('subpixel_learning_rate_start', 0.0002,
                           "Starting learning rate used for AdamOptimizer")
 
-tf.app.flags.DEFINE_integer('decay_steps', 20000,
+tf.app.flags.DEFINE_integer('subpixel_decay_steps', 10000000,
                             "Number of batches until learning rate is halved")
 
-tf.app.flags.DEFINE_integer('decay_rate', 0.5,
+tf.app.flags.DEFINE_integer('subpixel_decay_rate', 0.5,
+                            "Decay learning rate")
+# learning rate GAN
+tf.app.flags.DEFINE_float('gan_learning_rate_start', 0.00005,
+                          "Starting learning rate used for AdamOptimizer")
+
+tf.app.flags.DEFINE_integer('gan_decay_steps', 20000000,
+                            "Number of batches until learning rate is halved")
+
+tf.app.flags.DEFINE_integer('gan_decay_rate', 0.5,
                             "Decay learning rate")
 # 
 tf.app.flags.DEFINE_integer('test_vectors', 16,
@@ -81,7 +90,8 @@ tf.app.flags.DEFINE_integer('random_seed', 0,
 
 tf.app.flags.DEFINE_integer('train_time', 2000,
                             "Time in minutes to train the model")
-
+tf.app.flags.DEFINE_bool('delete_log', True,
+                         "Delete log file if exists.")
 
 def show_images(images):
     """
@@ -395,10 +405,12 @@ def main(argv=None):
     # Training or showing off?
     pp = pprint.PrettyPrinter()
     pp.pprint(FLAGS.__flags)
+    tf.logging.set_verbosity(tf.logging.DEBUG)
     
     if FLAGS.run == 'demo':
         _demo()
     elif FLAGS.run == 'train':
+        sys.path.append('train')
         if FLAGS.train_type == 'wgan':
             print("\t Train wgan")
             wgan_train()
@@ -406,8 +418,11 @@ def main(argv=None):
             print("\t Train gan")
             gan_train()
         elif FLAGS.train_type == 'gan_gen_subpixel':
-            sys.path.append('train')
+            print("\t Train gan_gen_subpixel")
             importlib.import_module('gan_subpixel_train').gan_subpixel_train()
+        elif FLAGS.train_type == 'residual_gan':
+            print("\t Train residual gan")
+            importlib.import_module('residual_gan_train').train()
             
         else:
             assert 0, "Please assign correct value of {}".format(FLAGS.train_type)

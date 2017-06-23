@@ -99,6 +99,17 @@ class Model:
         self.outputs.append(out)
         return self
 
+    def add_tanh(self):
+        """Adds a tanh (-1,1) activation function layer to this model."""
+
+        with tf.variable_scope(self._get_layer_str()):
+            prev_units = self._get_num_inputs()
+            out = tf.nn.tanh(self.get_output())
+        
+        self.outputs.append(out)
+        return self
+
+
     def add_softmax(self):
         """Adds a softmax operation to this model"""
 

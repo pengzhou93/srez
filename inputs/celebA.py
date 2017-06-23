@@ -27,6 +27,6 @@ def get_batch_inputs(sess, directory):
     # Setup async input queues
     # train_features : down sample images(4x)   train_labels : original images(64 64 3)
     train_features, train_labels = srez_input.setup_inputs(sess, train_filenames)
-    test_features,  test_labels  = srez_input.setup_inputs(sess, test_filenames)
+    test_features,  test_labels  = srez_input.setup_test_inputs(sess, test_filenames)
 
     return [train_features, train_labels, test_features, test_labels]

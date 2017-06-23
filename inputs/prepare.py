@@ -63,9 +63,64 @@ def prepare_dirs():
                            FLAGS.train_type,
                            'l1_{}'.format(FLAGS.gene_l1_factor), \
                            FLAGS.log_dir)
+
+    if tf.gfile.Exists(log_dir) and FLAGS.delete_log:
+        tf.gfile.DeleteRecursively(log_dir)
+        
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
     dirs = ScopeData(locals())
 
     return dirs
+
+# Prepare dirs for residual_gan_train.py
+def prepare_res_gan_dirs():
+    # images dir
+    imgs_dir = os.path.join(FLAGS.root_dir,
+                            FLAGS.train_type,
+                            'l1_{}'.format(FLAGS.gene_l1_factor), FLAGS.train_dir)
+    imgs_lf_dir = os.path.join(imgs_dir, 'lowf')
+    if not tf.gfile.Exists(imgs_lf_dir):
+        tf.gfile.MakeDirs(imgs_lf_dir)
+
+    imgs_hf_dir = os.path.join(imgs_dir, 'highf')
+    if not tf.gfile.Exists(imgs_hf_dir):
+        tf.gfile.MakeDirs(imgs_hf_dir)
+    
+    # Create checkpoint dir (do not delete anything)
+    ckpt_dir = os.path.join(FLAGS.root_dir,
+                            FLAGS.train_type,
+                            'l1_{}'.format(FLAGS.gene_l1_factor), \
+                            FLAGS.checkpoint_dir)
+    if not tf.gfile.Exists(ckpt_dir):
+        tf.gfile.MakeDirs(ckpt_dir)
+
+    # log dir
+    log_dir = os.path.join(FLAGS.root_dir,
+                           FLAGS.train_type,
+                           'l1_{}'.format(FLAGS.gene_l1_factor), \
+                           FLAGS.log_dir)
+
+    if tf.gfile.Exists(log_dir) and FLAGS.delete_log:
+        tf.gfile.DeleteRecursively(log_dir)
+        
+    if not tf.gfile.Exists(log_dir):
+        tf.gfile.MakeDirs(log_dir)
+
+    dirs = ScopeData(locals())
+
+    return dirs
+
+def get_nn_bi_summary_image(feature, label):
+    """Merge several test images in one big image for testing
+    """
+    with tf.variable_scope('summary_images') as scope:
+        size = [label.shape[1], label.shape[2]]
+        nearest = tf.image.resize_nearest_neighbor(feature, size)
+        nearest = tf.maximum(tf.minimum(nearest, 1.0), 0.0)
+    
+        bicubic = tf.image.resize_bicubic(feature, size)
+        bicubic = tf.maximum(tf.minimum(bicubic, 1.0), 0.0)
+    
+    return nearest, bicubic

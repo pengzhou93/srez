@@ -1,7 +1,7 @@
 from inputs.prepare import prepare_dirs, ScopeData, get_summary_image, summarize_progress, \
     save_checkpoint
 from inputs import celebA
-from networks import subpixel_model
+from networks import residual_gan_model
 
 import numpy as np
 import os
@@ -20,7 +20,6 @@ def gan_subpixel_train():
 
     # Prepare directories
     dirs = prepare_dirs()
-    summary_writer = tf.summary.FileWriter(dirs.log_dir, sess.graph)
 
     # Setup async input queues
     # train_features : down sample images(4x)   train_labels : original images(64 64 3)
@@ -49,29 +48,29 @@ def gan_subpixel_train():
     # Create and initialize model
     [gene_output, gene_var_list, \
      disc_real_output, disc_fake_output, disc_var_list] = \
-            subpixel_model.create_subpixel_model(sess, gene_input_pl, real_images_pl)
+            residual_gan_model.create_residual_gan_model(sess, gene_input_pl, real_images_pl)
     
     # generator loss
-    gene_loss = subpixel_model.gan_generator_subpixel_loss(gene_output, real_images_pl,
+    gene_loss = residual_gan_model.gan_generator_subpixel_loss(gene_output, real_images_pl,
                                                            disc_fake_output,
                                                            FLAGS.gene_l1_factor)
 
     # Summary
     tf.summary.scalar('gene_loss', gene_loss)
-    summary_gene_loss = tf.summary.FileWriter(dirs.log_dir + '/gene_loss')
-    summary_gene_loss.add_graph(gene_loss.graph)
+    # summary_gene_loss = tf.summary.FileWriter(dirs.log_dir + '/gene_loss')
+    # summary_gene_loss.add_graph(gene_loss.graph)
 
     # discriminator loss
     disc_real_loss, disc_fake_loss = \
-                                     subpixel_model.gan_discriminator_loss(
+                                     residual_gan_model.gan_discriminator_loss(
                                          disc_real_output, disc_fake_output)
     disc_loss = tf.add(disc_real_loss, disc_fake_loss, name='disc_loss')
     # Summary
     tf.summary.scalar('disc_real_loss', disc_real_loss)
     tf.summary.scalar('disc_fake_loss', disc_fake_loss)
     tf.summary.scalar('disc_loss', disc_loss)
-    summary_disc_loss = tf.summary.FileWriter(dirs.log_dir + '/disc_loss')
-    summary_disc_loss.add_graph(disc_loss.graph)
+    # summary_disc_loss = tf.summary.FileWriter(dirs.log_dir + '/disc_loss')
+    # summary_disc_loss.add_graph(disc_loss.graph)
     
     # Optimizer
     # learning_rate_pl  = tf.placeholder(dtype=tf.float32, name='learning_rate')
@@ -82,7 +81,7 @@ def gan_subpixel_train():
                                            FLAGS.decay_steps, FLAGS.decay_rate, staircase=True)
     tf.summary.scalar('learning_rate_pl', learning_rate)
     (gene_minimize, disc_minimize) = \
-            subpixel_model.gan_adam_optimizers(gene_loss, gene_var_list,
+            residual_gan_model.gan_adam_optimizers(gene_loss, gene_var_list,
                                                disc_loss, disc_var_list,
                                                learning_rate, FLAGS.learning_beta1)
 
@@ -115,6 +114,7 @@ def _gan_train(train_data):
         td.sess.run(init)
         print('\t Training from scratch!')
     # Graph definition finish
+    summary_writer = tf.summary.FileWriter(dirs.log_dir, td.sess.graph)
     tf.get_default_graph().finalize()
     start_time  = time.time()
     done  = False
@@ -158,8 +158,8 @@ def _gan_train(train_data):
                 done = True
             # Summary
             merge = td.sess.run(summarie_op, feed_dict = feed_dict)
-            td.summary_writer.add_summary(merge, batch)
-            td.summary_writer.flush()
+            summary_writer.add_summary(merge, batch)
+            summary_writer.flush()
            
         if batch % FLAGS.summary_period == 0:
             # Show progress with test features
